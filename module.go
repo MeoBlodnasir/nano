@@ -3,7 +3,6 @@ package nano
 import (
 	"encoding/json"
 	"errors"
-	"github.com/Nanocloud/rpc"
 	log "github.com/Sirupsen/logrus"
 	"net/url"
 	"os"
@@ -54,7 +53,7 @@ type Module struct {
 	Log *log.Entry
 
 	name  string
-	queue *rpc.Queue
+	queue *rpcQueue
 
 	/*
 	 * Map of string (http method), array of *reqHandler
@@ -95,13 +94,17 @@ func (m *Module) Listen() {
 		amqpURI = "amqp://guest:guest@localhost:5672/"
 	}
 
+	var err error
 	for try := 0; try < 10; try++ {
-		err := rpc.Listen(amqpURI, m.name, m.handleReq)
+		err = rpcListen(amqpURI, m.name, m.handleReq)
 		if err.Error() == "Connection lost" {
 			try = 0
 		}
-		panic(err)
 		time.Sleep(time.Second * 5)
+	}
+
+	if err != nil {
+		panic(err)
 	}
 }
 
@@ -297,7 +300,7 @@ func newModule(name string) (*Module, error) {
 		"module": name,
 	})
 
-	queue, err := rpc.NewQueue(amqpURI)
+	queue, err := newRPCQueue(amqpURI)
 	if err != nil {
 		return nil, err
 	}
