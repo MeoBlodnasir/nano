@@ -6,17 +6,22 @@ import (
 	log "github.com/Sirupsen/logrus"
 	"github.com/streadway/amqp"
 	"github.com/streamrail/concurrent-map"
+	"strconv"
+	"sync/atomic"
 	"time"
 )
 
 type rpcQueue struct {
-	name        string
-	channels    cmap.ConcurrentMap
-	amqpChannel *amqp.Channel
+	name          string
+	channels      cmap.ConcurrentMap
+	amqpChannel   *amqp.Channel
+	correlationId uint64
 }
 
-func (q rpcQueue) Request(routingKey string, contentType string, body []byte) (string, []byte, error) {
-	corrId := randomString(32)
+var li int
+
+func (q *rpcQueue) Request(routingKey string, contentType string, body []byte) (string, []byte, error) {
+	corrId := strconv.FormatUint(atomic.AddUint64(&(q.correlationId), 2), 10)
 	resChan := make(chan *amqp.Delivery)
 
 	_, exists := q.channels.Get(corrId)
@@ -51,6 +56,7 @@ func (q rpcQueue) Request(routingKey string, contentType string, body []byte) (s
 }
 
 func newRPCQueue(uri string) (*rpcQueue, error) {
+	fmt.Println("newRPCQueue")
 	var conn *amqp.Connection
 	var err error
 
@@ -104,9 +110,10 @@ func newRPCQueue(uri string) (*rpcQueue, error) {
 	}
 
 	q := rpcQueue{
-		name:        name,
-		channels:    cmap.New(),
-		amqpChannel: amqpChannel,
+		name:          name,
+		channels:      cmap.New(),
+		amqpChannel:   amqpChannel,
+		correlationId: 0,
 	}
 
 	go func() {
