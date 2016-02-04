@@ -3,11 +3,12 @@ package nano
 import (
 	"encoding/json"
 	"errors"
-	log "github.com/Sirupsen/logrus"
 	"net/url"
 	"os"
 	"strings"
 	"time"
+
+	log "github.com/Sirupsen/logrus"
 )
 
 type User struct {
@@ -24,8 +25,8 @@ type User struct {
 type handler func(Request) (*Response, error)
 
 type reqHandler struct {
-	handler handler
-	pattern string
+	handlers *[]handler
+	pattern  string
 }
 
 type request struct {
@@ -159,37 +160,37 @@ func (m *Module) Request(method string, path string, contentType string, body []
 	return &response, nil
 }
 
-func (m *Module) addHandler(method string, pattern string, handler handler) {
-	handlers, exists := m.handlers[method]
+func (m *Module) addHandler(method string, pattern string, handlers *[]handler) {
+	h, exists := m.handlers[method]
 	if !exists {
 		m.handlers[method] = []*reqHandler{
 			&reqHandler{
-				pattern: pattern,
-				handler: handler,
+				pattern:  pattern,
+				handlers: handlers,
 			},
 		}
 	}
 
-	m.handlers[method] = append(handlers, &reqHandler{
-		pattern: pattern,
-		handler: handler,
+	m.handlers[method] = append(h, &reqHandler{
+		pattern:  pattern,
+		handlers: handlers,
 	})
 }
 
-func (m *Module) Get(pattern string, handler handler) {
-	m.addHandler("GET", pattern, handler)
+func (m *Module) Get(pattern string, handlers ...handler) {
+	m.addHandler("GET", pattern, &handlers)
 }
 
-func (m *Module) Post(pattern string, handler handler) {
-	m.addHandler("POST", pattern, handler)
+func (m *Module) Post(pattern string, handlers ...handler) {
+	m.addHandler("POST", pattern, &handlers)
 }
 
-func (m *Module) Delete(pattern string, handler handler) {
-	m.addHandler("DELETE", pattern, handler)
+func (m *Module) Delete(pattern string, handlers ...handler) {
+	m.addHandler("DELETE", pattern, &handlers)
 }
 
-func (m *Module) Put(pattern string, handler handler) {
-	m.addHandler("PUT", pattern, handler)
+func (m *Module) Put(pattern string, handlers ...handler) {
+	m.addHandler("PUT", pattern, &handlers)
 }
 
 func isJSON(contentType string) bool {
@@ -272,17 +273,25 @@ func (m *Module) handleReq(contentType string, body []byte) (string, []byte) {
 			params, ok := patternMatch(handlers[i].pattern, u.Path)
 			if ok {
 				r.Params = params
-				response, err := handlers[i].handler(r)
-				if err != nil {
-					return jsonError(500, err.Error())
+				var err error
+				var response *Response
+
+				for _, handler := range *handlers[i].handlers {
+					response, err = handler(r)
+					if err != nil {
+						return jsonError(500, err.Error())
+					}
+					if response != nil {
+						b, err := json.Marshal(response)
+						if err != nil {
+							return jsonError(500, err.Error())
+						}
+
+						return "application/json", b
+					}
 				}
 
-				b, err := json.Marshal(response)
-				if err != nil {
-					return jsonError(500, err.Error())
-				}
-
-				return "application/json", b
+				return jsonError(500, err.Error())
 			}
 		}
 	}
